@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
     "server": "node server/index.js",
     "train:model": "python ml/train_models.py"
   },

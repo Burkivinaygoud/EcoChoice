@@ -521,9 +521,11 @@ app.post("/api/orders", requireUser, async (request, response) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`EcoChoice API running at http://localhost:${port}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`EcoChoice API running at http://localhost:${port}`);
+  });
+}
 
 app.patch("/api/auth/profile", requireUser, async (request, response) => {
   const name = String(request.body.name || "").trim();
@@ -642,6 +644,8 @@ app.get("/api/products/:id/image", async (request, response) => {
     response.status(500).json({ error: error.message });
   }
 });
+
+export default app;
 
 app.use("/api", (_request, response) => {
   response.status(404).json({ error: "API route not found. Restart the backend server." });
