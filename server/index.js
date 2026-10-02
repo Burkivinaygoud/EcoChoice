@@ -13,6 +13,7 @@ const app = express();
 const port = Number(process.env.PORT || 5000);
 const pythonCommand = process.env.PYTHON_PATH || "python";
 const predictionScript = fileURLToPath(new URL("../ml/predict.py", import.meta.url));
+const isVercelRuntime = Boolean(globalThis.process?.env?.VERCEL);
 
 app.use(cors());
 app.use(express.json());
@@ -347,7 +348,7 @@ const estimateProductCo2 = ({ category, material, productWeight, packagingType }
 };
 
 const predictProductCo2 = (payload) => new Promise((resolve, reject) => {
-  if (process.env.VERCEL) {
+  if (isVercelRuntime) {
     resolve(estimateProductCo2(payload));
     return;
   }
@@ -578,7 +579,7 @@ app.post("/api/orders", requireUser, async (request, response) => {
   }
 });
 
-if (!process.env.VERCEL) {
+if (!isVercelRuntime) {
   app.listen(port, () => {
     console.log(`EcoChoice API running at http://localhost:${port}`);
   });
@@ -700,6 +701,10 @@ app.get("/api/products/:id/image", async (request, response) => {
   } catch (error) {
     response.status(500).json({ error: error.message });
   }
+});
+
+app.get("/api/version", (_request, response) => {
+  response.json({ version: "809e00b", scoring: isVercelRuntime ? "vercel-fallback" : "python-model" });
 });
 
 export default app;
