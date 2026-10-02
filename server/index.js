@@ -293,7 +293,64 @@ const isValidProduct = ({ name, price, emoji, grade, co2, category, material, pr
   && Number.isFinite(productWeight) && productWeight > 0
 );
 
+const estimateProductCo2 = ({ category, material, productWeight, packagingType }) => {
+  const materialFactors = {
+    Bamboo: 0.8,
+    "Organic cotton": 1.2,
+    Cotton: 1.8,
+    Paper: 0.9,
+    Cardboard: 0.7,
+    Wood: 1.1,
+    Glass: 1.4,
+    Aluminum: 2.2,
+    Steel: 1.8,
+    Plastic: 2.4,
+    Electronics: 4.2,
+    Leather: 3.6,
+  };
+  const packagingFactors = {
+    None: 0,
+    Paper: 0.1,
+    "Paper bag": 0.15,
+    Cardboard: 0.2,
+    "Recycled cardboard": 0.12,
+    Plastic: 0.35,
+    "Recycled plastic": 0.2,
+    "Plastic bag": 0.3,
+    Glass: 0.4,
+    "Aluminum can": 0.3,
+    "Steel can": 0.25,
+    "Mixed packaging": 0.35,
+  };
+  const categoryFactors = {
+    "Food Products": 1.1,
+    Beverages: 1.1,
+    "Computers & Peripherals": 1.25,
+    "Office Electronics": 1.2,
+    "Communications Equipment": 1.2,
+    Automobiles: 1.3,
+  };
+  const weightKg = Number(productWeight) / 1000;
+  const estimatedCo2 = Math.max(
+    0.05,
+    weightKg * (materialFactors[material] || 1.8) * (categoryFactors[category] || 1) + (packagingFactors[packagingType] || 0.25)
+  );
+  const grade = estimatedCo2 <= 1 ? "A" : estimatedCo2 <= 2 ? "B" : estimatedCo2 <= 3.5 ? "C" : estimatedCo2 <= 4.5 ? "D" : estimatedCo2 <= 5.5 ? "E" : "F";
+  return {
+    estimatedCo2: Number(estimatedCo2.toFixed(3)),
+    grade,
+    confidence: 0.55,
+    randomForestCo2: Number(estimatedCo2.toFixed(3)),
+    xgboostCo2: Number(estimatedCo2.toFixed(3)),
+    validation: { source: "production fallback estimate" },
+  };
+};
+
 const predictProductCo2 = (payload) => new Promise((resolve, reject) => {
+  if (process.env.VERCEL) {
+    resolve(estimateProductCo2(payload));
+    return;
+  }
   const process = spawn(pythonCommand, [predictionScript], { windowsHide: true });
   let output = "";
   let errorOutput = "";
