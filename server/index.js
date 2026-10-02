@@ -351,13 +351,13 @@ const predictProductCo2 = (payload) => new Promise((resolve, reject) => {
     resolve(estimateProductCo2(payload));
     return;
   }
-  const process = spawn(pythonCommand, [predictionScript], { windowsHide: true });
+  const childProcess = spawn(pythonCommand, [predictionScript], { windowsHide: true });
   let output = "";
   let errorOutput = "";
-  process.stdout.on("data", (chunk) => { output += chunk; });
-  process.stderr.on("data", (chunk) => { errorOutput += chunk; });
-  process.on("error", (error) => reject(new Error(`Could not start the scoring model: ${error.message}`)));
-  process.on("close", (code) => {
+  childProcess.stdout.on("data", (chunk) => { output += chunk; });
+  childProcess.stderr.on("data", (chunk) => { errorOutput += chunk; });
+  childProcess.on("error", (error) => reject(new Error(`Could not start the scoring model: ${error.message}`)));
+  childProcess.on("close", (code) => {
     if (code !== 0) {
       reject(new Error(errorOutput.trim() || "The scoring model failed."));
       return;
@@ -370,7 +370,7 @@ const predictProductCo2 = (payload) => new Promise((resolve, reject) => {
       reject(error);
     }
   });
-  process.stdin.end(JSON.stringify(payload));
+  childProcess.stdin.end(JSON.stringify(payload));
 });
 
 const parseProductImage = (request, response, next) => {
