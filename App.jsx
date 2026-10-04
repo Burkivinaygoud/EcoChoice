@@ -1129,9 +1129,9 @@ function AdminPage({ user, onLogout }) {
     setProductForm((current) => ({ ...current, image: event.target.files?.[0] || null }));
   };
 
-  const resetProductForm = () => {
+  const resetProductForm = ({ clearScore = true } = {}) => {
     setProductForm({ id: "", name: "", price: "", grade: "A", co2: "", category: "", material: "", productWeight: "", packagingType: "", image: null });
-    setScorePreview(null);
+    if (clearScore) setScorePreview(null);
   };
 
   const saveProduct = async (event) => {
@@ -1172,8 +1172,8 @@ function AdminPage({ user, onLogout }) {
       );
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save product.");
-      setProductMessage(`${productForm.id ? "Product updated" : "Product added"}.`);
-      resetProductForm();
+      setProductMessage(`${productForm.id ? "Product updated" : "Product added"}. CO₂ details are shown below.`);
+      resetProductForm({ clearScore: false });
       await loadProducts();
     } catch (requestError) {
       setProductMessage(requestError.message);
@@ -1259,6 +1259,7 @@ function AdminPage({ user, onLogout }) {
             {scorePreview && <div className="co2-score-panel">
               <div><span className="co2-score-label">ESTIMATED PRODUCT CO₂ OUTPUT</span><strong>{Number(scorePreview.estimatedCo2).toFixed(3)} <small>kg CO₂e</small></strong></div>
               <div className="co2-score-details"><span>Random Forest: <b>{Number(scorePreview.randomForestCo2).toFixed(3)} kg</b></span><span>XGBoost: <b>{Number(scorePreview.xgboostCo2).toFixed(3)} kg</b></span><span>Carbon grade: <b>{scorePreview.grade}</b></span><span>Model agreement: <b>{Math.round(Number(scorePreview.confidence) * 100)}%</b></span></div>
+              <button className="btn-mini" type="button" onClick={() => { resetProductForm(); setProductMessage(""); }}>Add another product</button>
             </div>}
             {productMessage && <div className="form-message">{productMessage}</div>}
             <button className="btn-primary" type="submit">{productForm.id ? "Update Product" : "Add Product"}</button>
