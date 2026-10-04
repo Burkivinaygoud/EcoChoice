@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import joblib
+import math
 import pandas as pd
 
 MODEL_PATH = Path(__file__).resolve().parent / "models.joblib"
@@ -21,8 +22,9 @@ def main():
 
     bundle = joblib.load(MODEL_PATH)
     product_weight = float(features.iloc[0]["productWeight"])
-    forest_value = max(0, float(bundle["randomForest"].predict(features)[0]) * product_weight)
-    boost_value = max(0, float(bundle["xgboost"].predict(features)[0]) * product_weight)
+    features["logProductWeight"] = math.log1p(product_weight)
+    forest_value = max(0, float(math.expm1(bundle["randomForest"].predict(features)[0])))
+    boost_value = max(0, float(math.expm1(bundle["xgboost"].predict(features)[0])))
     estimated_value = (forest_value + boost_value) / 2
     disagreement = abs(forest_value - boost_value) / max(estimated_value, 1)
     confidence = max(0.05, min(0.95, 0.95 - disagreement * 0.5))

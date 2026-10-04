@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 
 import joblib
+import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
@@ -78,6 +79,7 @@ def build_features(frame):
         "category": frame["category"].map(normalize_category),
         "material": frame["material"].fillna("Unknown").map(normalize_category),
         "productWeight": frame["productWeight"].astype(float),
+        "logProductWeight": np.log1p(frame["productWeight"].astype(float)),
         "packagingType": frame["packagingType"].fillna("Unknown").map(normalize_category),
     })
 
@@ -86,7 +88,7 @@ def create_pipeline(model):
     preprocess = ColumnTransformer(
         transformers=[
             ("categorical", OneHotEncoder(handle_unknown="ignore"), ["category", "material", "packagingType"]),
-            ("numeric", "passthrough", ["productWeight"]),
+            ("numeric", "passthrough", ["productWeight", "logProductWeight"]),
         ]
     )
     return Pipeline([("preprocess", preprocess), ("model", model)])
@@ -105,7 +107,9 @@ def main():
     frame["packagingType"] = frame["productName"].map(infer_packaging)
 
     features = build_features(frame)
-    target = frame["target"] / frame["productWeight"]
+    # The source spans several orders of magnitude. Fitting log(1 + footprint)
+    # prevents the largest industrial records from dominating consumer products.
+    target = np.log1p(frame["target"])
     x_train, x_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
 
     random_forest = create_pipeline(RandomForestRegressor(n_estimators=300, random_state=42, n_jobs=-1, min_samples_leaf=2))
@@ -122,18 +126,25 @@ def main():
     random_forest.fit(x_train, y_train)
     xgboost.fit(x_train, y_train)
 
-    forest_predictions = random_forest.predict(x_test) * x_test["productWeight"].to_numpy()
-    boost_predictions = xgboost.predict(x_test) * x_test["productWeight"].to_numpy()
+    forest_predictions = np.expm1(random_forest.predict(x_test))
+    boost_predictions = np.expm1(xgboost.predict(x_test))
     ensemble_predictions = (forest_predictions + boost_predictions) / 2
-    actual_predictions = y_test.to_numpy() * x_test["productWeight"].to_numpy()
+    actual_predictions = np.expm1(y_test.to_numpy())
+    absolute_errors = np.abs(actual_predictions - ensemble_predictions)
     metrics = {
         "rows": int(len(frame)),
         "randomForestMae": float(mean_absolute_error(actual_predictions, forest_predictions)),
         "xgboostMae": float(mean_absolute_error(actual_predictions, boost_predictions)),
         "ensembleMae": float(mean_absolute_error(actual_predictions, ensemble_predictions)),
         "ensembleRmse": float(mean_squared_error(actual_predictions, ensemble_predictions) ** 0.5),
-        "target": "product-level kg CO2e, modeled through kg CO2e per kg intensity",
+        "ensembleMedianAbsoluteError": float(np.median(absolute_errors)),
+        "ensembleMedianAbsolutePercentageError": float(
+            np.median(absolute_errors / np.maximum(actual_predictions, 1e-6))
+        ),
+        "target": "log1p product-level kg CO2e",
         "source": "Carbon Catalogue product_cleaned.csv",
+        "split": "80/20 random split, random_state=42",
+        "modelVersion": 2,
     }
     joblib.dump({"randomForest": random_forest, "xgboost": xgboost, "metrics": metrics}, MODEL_PATH)
     print(metrics)

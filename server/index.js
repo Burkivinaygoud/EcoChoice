@@ -343,7 +343,10 @@ const estimateProductCo2 = ({ category, material, productWeight, packagingType }
     confidence: 0.55,
     randomForestCo2: Number(estimatedCo2.toFixed(3)),
     xgboostCo2: Number(estimatedCo2.toFixed(3)),
-    validation: { source: "production fallback estimate" },
+    validation: {
+      source: "production fallback estimate; trained Python model is used outside Vercel",
+      modelVersion: 2,
+    },
   };
 };
 
