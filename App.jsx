@@ -88,19 +88,33 @@ const getProductSearchScore = (product, query) => {
   }, 0);
 };
 
-const getSaferAlternative = (product, products) => products
-  .filter((candidate) => (
-    candidate.id !== product.id
-    && candidate.category
-    && product.category
-    && candidate.category.toLowerCase() === product.category.toLowerCase()
-    && Number(candidate.co2) < Number(product.co2)
-  ))
-  .map((candidate) => ({
-    candidate,
-    nameSimilarity: searchTokens(product.n).filter((token) => searchTokens(candidate.n).includes(token)).length,
-  }))
-  .sort((a, b) => b.nameSimilarity - a.nameSimilarity || Number(a.candidate.co2) - Number(b.candidate.co2))[0]?.candidate || null;
+const ALTERNATIVE_STOP_WORDS = new Set([
+  "a", "an", "and", "for", "in", "of", "on", "set", "the", "with",
+  "pack", "pk", "piece", "pieces", "unit", "units",
+]);
+
+const getProductNameKeywords = (name) => searchTokens(name)
+  .filter((token) => !ALTERNATIVE_STOP_WORDS.has(token) && !/^\d+(g|kg|l|ml|mah|pack|pk)?$/.test(token))
+  .map((token) => token.endsWith("s") && token.length > 3 ? token.slice(0, -1) : token);
+
+const getSaferAlternative = (product, products) => {
+  const productKeywords = getProductNameKeywords(product.n);
+  if (!productKeywords.length) return null;
+
+  return products
+    .filter((candidate) => candidate.id !== product.id && Number(candidate.co2) < Number(product.co2))
+    .map((candidate) => {
+      const candidateKeywords = new Set(getProductNameKeywords(candidate.n));
+      const matchingKeywords = productKeywords.filter((keyword) => candidateKeywords.has(keyword));
+      return {
+        candidate,
+        matchingKeywords,
+        nameSimilarity: matchingKeywords.length / productKeywords.length,
+      };
+    })
+    .filter(({ matchingKeywords }) => matchingKeywords.length > 0)
+    .sort((a, b) => b.nameSimilarity - a.nameSimilarity || b.matchingKeywords.length - a.matchingKeywords.length || Number(a.candidate.co2) - Number(b.candidate.co2))[0]?.candidate || null;
+};
 
 const getEcoDiscount = (cart, products) => cart.reduce((discount, item) => {
   const itemCo2 = Number(item.co2);
@@ -225,6 +239,7 @@ export default function App() {
   const [orderMessage, setOrderMessage] = useState("");
   const [aiOpen, setAiOpen] = useState(false);
   const [aiProduct, setAiProduct] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const [ecoRecommendation, setEcoRecommendation] = useState(null);
   const [savingsMessage, setSavingsMessage] = useState("");
   const [dataLoading, setDataLoading] = useState(false);
@@ -306,6 +321,13 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
+  const viewProduct = (product) => {
+    setSelectedProduct(product);
+    setPage("product-detail");
+    setSidebarOpen(false);
+    window.scrollTo(0, 0);
+  };
+
   const saveUserList = (path, items) => {
     fetch(`${API_BASE}${path}`, {
       method: "PUT",
@@ -339,9 +361,7 @@ export default function App() {
     } else {
       setSavingsMessage("");
     }
-    const greenerAlternative = products
-      .filter((product) => product.id !== p.id && product.category && p.category && String(product.category).toLowerCase() === String(p.category).toLowerCase() && Number(product.co2) < Number(p.co2))
-      .sort((a, b) => Number(a.co2) - Number(b.co2))[0];
+    const greenerAlternative = getSaferAlternative(p, products);
     setEcoRecommendation(greenerAlternative ? { chosen: p, alternative: greenerAlternative } : null);
   };
 
@@ -419,14 +439,18 @@ export default function App() {
           </div>
         </div>
         {savingsMessage && <div className="savings-message"><strong>🌱 Great choice!</strong><span>{savingsMessage}</span><button onClick={() => setSavingsMessage("")} aria-label="Dismiss savings message">×</button></div>}
-        {ecoRecommendation && <div className="eco-recommendation"><div><strong>🌿 Greener option available</strong><span>{ecoRecommendation.chosen.n} has {ecoRecommendation.chosen.co2} kg CO₂. Try {ecoRecommendation.alternative.n} from the same category at {ecoRecommendation.alternative.co2} kg CO₂.</span></div><button onClick={() => { addToCart(ecoRecommendation.alternative, ecoRecommendation.chosen); setEcoRecommendation(null); }}>Add greener option</button><button className="recommend-close" onClick={() => setEcoRecommendation(null)} aria-label="Dismiss recommendation">×</button></div>}
+        {ecoRecommendation && <div className="eco-recommendation"><div><strong>🌿 Greener option available</strong><span>{ecoRecommendation.chosen.n} has {ecoRecommendation.chosen.co2} kg CO₂. Try {ecoRecommendation.alternative.n} at {ecoRecommendation.alternative.co2} kg CO₂.</span></div><button onClick={() => viewProduct(ecoRecommendation.alternative)}>See alternative</button><button className="recommend-close" onClick={() => setEcoRecommendation(null)} aria-label="Dismiss recommendation">×</button></div>}
 
         {page === "home" && (
           <HomePage user={user} cart={cart} wishlist={wishlist} orders={orders} goto={goto} />
         )}
 
         {page === "products" && (
-          <ProductsPage products={products} wishlist={wishlist} toggleWish={toggleWish} addToCart={addToCart} onExplainProduct={(product) => { setAiProduct(product); setAiOpen(true); }} />
+          <ProductsPage products={products} wishlist={wishlist} toggleWish={toggleWish} addToCart={addToCart} onExplainProduct={(product) => { setAiProduct(product); setAiOpen(true); }} onViewProduct={viewProduct} />
+        )}
+
+        {page === "product-detail" && selectedProduct && (
+          <ProductDetailPage product={selectedProduct} addToCart={addToCart} onBack={() => goto("products")} />
         )}
 
         {page === "wishlist" && (
@@ -650,7 +674,7 @@ function HomeAnalytics({ chartData }) {
   );
 }
 
-function ProductCard({ p, liked, onWish, onAdd, onExplain, saferAlternative, showRemove = false }) {
+function ProductCard({ p, liked, onWish, onAdd, onExplain, saferAlternative, onViewAlternative, showRemove = false }) {
   const [showSafer, setShowSafer] = useState(false);
 
   return (
@@ -665,7 +689,7 @@ function ProductCard({ p, liked, onWish, onAdd, onExplain, saferAlternative, sho
         showSafer ? (
           <div className="safer-alternative">
             <div><strong>Safer alternative</strong><span>{saferAlternative.n} · {saferAlternative.co2} kg CO₂</span></div>
-            <button className="safer-btn" onClick={() => onAdd(saferAlternative, p)}>Choose safer</button>
+            <button className="safer-btn" onClick={() => onViewAlternative(saferAlternative)}>See alternative</button>
           </div>
         ) : <button className="safer-btn safer-toggle" onClick={() => setShowSafer(true)}>Safer alternative</button>
       )}
@@ -681,7 +705,7 @@ function ProductCard({ p, liked, onWish, onAdd, onExplain, saferAlternative, sho
   );
 }
 
-function ProductsPage({ products, wishlist, toggleWish, addToCart, onExplainProduct }) {
+function ProductsPage({ products, wishlist, toggleWish, addToCart, onExplainProduct, onViewProduct }) {
   const [query, setQuery] = useState("");
   const filteredProducts = products
     .map((product) => ({ product, score: getProductSearchScore(product, query) }))
@@ -713,8 +737,35 @@ function ProductsPage({ products, wishlist, toggleWish, addToCart, onExplainProd
             onAdd={(product = p, comparedTo = null) => addToCart(product, comparedTo)}
             onExplain={() => onExplainProduct(p)}
             saferAlternative={getSaferAlternative(p, products)}
+            onViewAlternative={onViewProduct}
           />
         ))}
+      </div>
+    </section>
+  );
+}
+
+function ProductDetailPage({ product, addToCart, onBack }) {
+  return (
+    <section className="page">
+      <button className="btn-mini" onClick={onBack}>← Back to products</button>
+      <div className="product-detail card">
+        <div className="product-detail-image thumb product-image-wrap">
+          {product.image ? <img className="product-image" src={product.image} alt={product.n} /> : product.e}
+        </div>
+        <div className="product-detail-content">
+          <div className="eyebrow">PRODUCT DETAILS</div>
+          <h1>{product.n}</h1>
+          <div className="meta"><span className={"grade-pill g" + product.g}>{product.g} carbon grade</span><span className="co2-highlight">{Number(product.co2).toFixed(3)} kg CO₂e</span></div>
+          <p className="product-detail-copy">A lower-carbon alternative selected using matching product-name keywords, not just the broad category.</p>
+          <div className="product-detail-facts">
+            <span><strong>Price</strong>{fmt(product.p)}</span>
+            <span><strong>Material</strong>{product.material || "Not specified"}</span>
+            <span><strong>Weight</strong>{product.productWeight ? `${product.productWeight} g` : "Not specified"}</span>
+            <span><strong>Packaging</strong>{product.packagingType || "Not specified"}</span>
+          </div>
+          <button className="btn-primary" onClick={() => addToCart(product)}>Add to cart · {fmt(product.p)}</button>
+        </div>
       </div>
     </section>
   );
@@ -1026,6 +1077,7 @@ function AdminPage({ user, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [productMessage, setProductMessage] = useState("");
+  const [scorePreview, setScorePreview] = useState(null);
   const [productForm, setProductForm] = useState({ id: "", name: "", price: "", grade: "A", co2: "", category: "", material: "", productWeight: "", packagingType: "", image: null });
 
   const loadUsers = async () => {
@@ -1079,6 +1131,7 @@ function AdminPage({ user, onLogout }) {
 
   const resetProductForm = () => {
     setProductForm({ id: "", name: "", price: "", grade: "A", co2: "", category: "", material: "", productWeight: "", packagingType: "", image: null });
+    setScorePreview(null);
   };
 
   const saveProduct = async (event) => {
@@ -1097,6 +1150,7 @@ function AdminPage({ user, onLogout }) {
       });
       const score = await readApiResponse(scoreResponse);
       if (!scoreResponse.ok) throw new Error(score.error || "Could not calculate the product sustainability score.");
+      setScorePreview(score);
 
       const payload = new FormData();
       payload.append("name", productForm.name);
@@ -1118,7 +1172,7 @@ function AdminPage({ user, onLogout }) {
       );
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save product.");
-      setProductMessage(`${productForm.id ? "Product updated" : "Product added"}. AI score: ${score.estimatedCo2} kg CO₂, grade ${score.grade} (${Math.round(score.confidence * 100)}% model agreement).`);
+      setProductMessage(`${productForm.id ? "Product updated" : "Product added"}.`);
       resetProductForm();
       await loadProducts();
     } catch (requestError) {
@@ -1128,6 +1182,7 @@ function AdminPage({ user, onLogout }) {
 
   const editProduct = (product) => {
     setProductForm({ id: product.id, name: product.n, price: product.p, grade: product.g, co2: product.co2, category: product.category, material: product.material, productWeight: product.productWeight, packagingType: product.packagingType, image: null });
+    setScorePreview(null);
     setProductMessage("");
     window.scrollTo(0, 0);
   };
@@ -1201,6 +1256,10 @@ function AdminPage({ user, onLogout }) {
             <label>Product Weight (g)<input name="productWeight" type="number" min="0" step="0.1" value={productForm.productWeight} onChange={updateProductField} required /></label>
             <label>Packaging Type<select name="packagingType" value={productForm.packagingType} onChange={updateProductField} required><option value="">Choose packaging</option>{PRODUCT_PACKAGING.map((packaging) => <option key={packaging}>{packaging}</option>)}</select></label>
             <label>Product Image (max 150 KB)<input type="file" accept="image/*" onChange={updateProductImage} /></label>
+            {scorePreview && <div className="co2-score-panel">
+              <div><span className="co2-score-label">ESTIMATED PRODUCT CO₂ OUTPUT</span><strong>{Number(scorePreview.estimatedCo2).toFixed(3)} <small>kg CO₂e</small></strong></div>
+              <div className="co2-score-details"><span>Random Forest: <b>{Number(scorePreview.randomForestCo2).toFixed(3)} kg</b></span><span>XGBoost: <b>{Number(scorePreview.xgboostCo2).toFixed(3)} kg</b></span><span>Carbon grade: <b>{scorePreview.grade}</b></span><span>Model agreement: <b>{Math.round(Number(scorePreview.confidence) * 100)}%</b></span></div>
+            </div>}
             {productMessage && <div className="form-message">{productMessage}</div>}
             <button className="btn-primary" type="submit">{productForm.id ? "Update Product" : "Add Product"}</button>
           </form>
@@ -1208,7 +1267,7 @@ function AdminPage({ user, onLogout }) {
           {products.length === 0 ? <div className="admin-empty">No products in the catalog yet.</div> : products.map((product) => (
             <div className="admin-product-row" key={product.id}>
               <div className="thumb">{product.image ? <img className="product-image" src={product.image} alt="" /> : product.e}</div>
-              <div className="admin-user-main"><strong>{product.n}</strong><span>{fmt(product.p)} · {product.category || "Uncategorized"} · {product.material || "Material not set"} · {product.productWeight || "-"} g</span></div>
+              <div className="admin-user-main"><strong>{product.n}</strong><span>{fmt(product.p)} · {Number(product.co2).toFixed(3)} kg CO₂e · {product.category || "Uncategorized"} · {product.material || "Material not set"} · {product.productWeight || "-"} g</span></div>
               <button className="btn-mini" onClick={() => editProduct(product)}>Edit</button>
               <button className="btn-mini danger" onClick={() => deleteProduct(product)}>Delete</button>
             </div>
