@@ -585,7 +585,7 @@ app.post("/api/orders", requireUser, async (request, response) => {
 });
 
 if (!isVercelRuntime) {
-  app.listen(port, () => {
+  app.listen(port, "0.0.0.0", () => {
     console.log(`EcoChoice API running at http://localhost:${port}`);
   });
 }
