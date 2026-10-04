@@ -331,7 +331,9 @@ const estimateProductCo2 = ({ category, material, productWeight, packagingType }
     "Communications Equipment": 1.2,
     Automobiles: 1.3,
   };
-  const weightKg = Number(productWeight) / 1000;
+  // The API route converts the admin form's grams to kilograms before calling
+  // this function. Do not convert the value a second time.
+  const weightKg = Number(productWeight);
   const estimatedCo2 = Math.max(
     0.05,
     weightKg * (materialFactors[material] || 1.8) * (categoryFactors[category] || 1) + (packagingFactors[packagingType] || 0.25)
@@ -707,7 +709,7 @@ app.get("/api/products/:id/image", async (request, response) => {
 });
 
 app.get("/api/version", (_request, response) => {
-  response.json({ version: "809e00b", scoring: isVercelRuntime ? "vercel-fallback" : "python-model" });
+  response.json({ version: "e65e474", scoring: isVercelRuntime ? "vercel-fallback" : "python-model" });
 });
 
 export default app;
